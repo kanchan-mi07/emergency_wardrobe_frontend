@@ -1,6 +1,5 @@
 import axios from 'axios'
 
-// Checks Vercel env variables first; falls back to live Render backend
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
@@ -10,7 +9,7 @@ const api = axios.create({
   baseURL: API_BASE,
 })
 
-// Attach the JWT (if present) to every outgoing request.
+// Attach JWT token if available
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) {
@@ -19,19 +18,7 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Clear local session if token is invalid/expired
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response && error.response.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-    }
-    return Promise.reject(error)
-  }
-)
-
-// Redirect non-auth 401 requests to /login
+// Single response interceptor for error handling
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -39,6 +26,7 @@ api.interceptors.response.use(
     const isAuthCall = url.includes('/api/auth/')
     if (error.response?.status === 401 && !isAuthCall) {
       localStorage.removeItem('token')
+      localStorage.removeItem('user')
       window.location.href = '/login'
     }
     return Promise.reject(error)
