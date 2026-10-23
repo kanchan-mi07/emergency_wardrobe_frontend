@@ -1,9 +1,10 @@
 import axios from 'axios'
 
-const API_BASE =
+// In development fall back to the local backend; only production builds use the hosted one.
+export const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
-  'https://emergency-wardrobe-backend.onrender.com'
+  (import.meta.env.DEV ? 'http://localhost:8080' : 'https://emergency-wardrobe-backend.onrender.com')
 
 const api = axios.create({
   baseURL: API_BASE,

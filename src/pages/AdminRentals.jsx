@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import AdminNav from '../components/AdminNav'
+import StatusBadge from '../components/StatusBadge'
+import { getErrorMessage } from '../utils/errors'
 import { fetchAdminRentals, updateRentalStatus } from '../services/adminService'
 
 const STATUSES = ['PENDING', 'CONFIRMED', 'ACTIVE', 'RETURNED', 'CLEANING', 'CANCELLED']
@@ -9,7 +11,7 @@ function AdminRentals() {
   const [error, setError] = useState('')
 
   function load() {
-    fetchAdminRentals().then(setRows).catch(() => setError('Could not load rentals'))
+    fetchAdminRentals().then(setRows).catch((err) => setError(getErrorMessage(err, 'Could not load rentals')))
   }
   useEffect(load, [])
 
@@ -19,7 +21,7 @@ function AdminRentals() {
       await updateRentalStatus(id, status)
       load()
     } catch (err) {
-      setError(err.response?.data || 'Could not update status')
+      setError(getErrorMessage(err, 'Could not update status'))
       load()
     }
   }
@@ -28,10 +30,11 @@ function AdminRentals() {
     <div className="container mt-4">
       <h2>Manage Rentals</h2>
       <AdminNav />
-      {error && <p className="text-danger">{String(error)}</p>}
+      {error && <div className="ew-alert ew-alert-error">{error}</div>}
+      <div className="ew-card ew-table-wrap">
       <table className="table">
         <thead>
-          <tr><th>#</th><th>Customer</th><th>Item</th><th>Dates</th><th>Total</th><th>Status</th></tr>
+          <tr><th>#</th><th>Customer</th><th>Item</th><th>Dates</th><th>Total</th><th>Payment</th><th>Status</th></tr>
         </thead>
         <tbody>
           {rows.map(({ userEmail, rental }) => (
@@ -40,9 +43,10 @@ function AdminRentals() {
               <td>{userEmail}</td>
               <td>{rental.productName}{rental.variantSize && ` (${rental.variantSize})`}</td>
               <td>{rental.startDate} → {rental.endDate}</td>
-              <td>₹{rental.totalAmount}</td>
+              <td>₹{Number(rental.totalAmount).toLocaleString('en-IN')}</td>
+              <td><StatusBadge status={rental.paymentStatus} /></td>
               <td>
-                <select className="form-select form-select-sm" value={rental.status}
+                <select className="form-select form-select-sm" style={{ minWidth: 140 }} value={rental.status}
                         onChange={(e) => handleStatusChange(rental.id, e.target.value)}>
                   {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
@@ -51,6 +55,7 @@ function AdminRentals() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

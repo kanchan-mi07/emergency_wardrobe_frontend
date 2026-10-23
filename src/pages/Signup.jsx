@@ -1,60 +1,51 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import BackButton from '../components/BackButton'
+import AuthLayout from '../components/AuthLayout'
+import { getErrorMessage } from '../utils/errors'
 
 function Signup() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
   const { signup } = useAuth()
   const navigate = useNavigate()
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
+    setSubmitting(true)
     try {
       await signup({ name, email, password })
-      navigate('/')
+      navigate('/dashboard', { replace: true })
     } catch (err) {
-      setError(err.response?.data || 'Something went wrong')
+      setError(getErrorMessage(err, 'Could not create your account'))
+    } finally {
+      setSubmitting(false)
     }
   }
 
   return (
-    <div className="ew-page" style={{ maxWidth: '360px' }}>
-      <BackButton />
-      <h2>Sign Up</h2>
+    <AuthLayout title="Create your account" subtitle="It takes less than a minute.">
       <form onSubmit={handleSubmit}>
-        <input
-          className="form-control mb-2"
-          placeholder="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <input
-          className="form-control mb-2"
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <input
-          className="form-control mb-2"
-          type="password"
-          placeholder="Password (min 6 characters)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        <button className="btn btn-dark w-100" type="submit">Create account</button>
+        <label className="form-label" htmlFor="name">Full name</label>
+        <input id="name" className="form-control mb-3" autoComplete="name" placeholder="Your name"
+          value={name} onChange={(e) => setName(e.target.value)} required />
+        <label className="form-label" htmlFor="email">Email</label>
+        <input id="email" className="form-control mb-3" type="email" autoComplete="email" placeholder="you@example.com"
+          value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <label className="form-label" htmlFor="password">Password</label>
+        <input id="password" className="form-control mb-3" type="password" autoComplete="new-password" placeholder="At least 6 characters"
+          minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} required />
+        {error && <div className="ew-alert ew-alert-error">{error}</div>}
+        <button className="btn btn-dark w-100 py-2" type="submit" disabled={submitting}>
+          {submitting ? 'Creating account…' : 'Create account'}
+        </button>
       </form>
-      {error && <p className="text-danger mt-2">{String(error)}</p>}
-      <p className="mt-3">Already have an account? <Link to="/login">Login</Link></p>
-    </div>
+      <p className="mt-4 mb-0 text-muted">Already have an account? <Link to="/login">Log in</Link></p>
+    </AuthLayout>
   )
 }
 

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import AdminNav from '../components/AdminNav'
+import StatusBadge from '../components/StatusBadge'
+import { getErrorMessage } from '../utils/errors'
 import { fetchAdminUsers } from '../services/adminService'
 
 function AdminUsers() {
@@ -7,14 +9,16 @@ function AdminUsers() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetchAdminUsers().then(setUsers).catch(() => setError('Could not load users'))
+    fetchAdminUsers().then(setUsers).catch((err) => setError(getErrorMessage(err, 'Could not load users')))
   }, [])
 
   return (
-    <div className="container mt-4">
-      <h2>Users</h2>
+    <div className="ew-page ew-page--wide">
+      <h1 className="ew-page-title">Users</h1>
+      <p className="ew-page-lead">&nbsp;</p>
       <AdminNav />
-      {error && <p className="text-danger">{error}</p>}
+      {error && <div className="ew-alert ew-alert-error">{error}</div>}
+      <div className="ew-card ew-table-wrap">
       <table className="table">
         <thead>
           <tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Joined</th></tr>
@@ -25,12 +29,13 @@ function AdminUsers() {
               <td>{u.id}</td>
               <td>{u.name}</td>
               <td>{u.email}</td>
-              <td>{u.role}</td>
+              <td><StatusBadge status={u.role} /></td>
               <td>{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : ''}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

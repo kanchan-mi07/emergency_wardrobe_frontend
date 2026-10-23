@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import AdminNav from '../components/AdminNav'
+import { getErrorMessage } from '../utils/errors'
+import ProductImage from '../components/ProductImage'
 import { fetchProducts } from '../services/productService'
 import {
   fetchCategories, createCategory, deleteCategory,
@@ -26,10 +28,12 @@ function AdminProducts() {
   const [editingId, setEditingId] = useState(null)
   const [newCategory, setNewCategory] = useState('')
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [fillingImages, setFillingImages] = useState(false)
 
   function load() {
-    fetchProducts().then(setProducts)
-    fetchCategories().then(setCategories)
+    fetchProducts().then(setProducts).catch((err) => setError(getErrorMessage(err, 'Could not load products')))
+    fetchCategories().then(setCategories).catch((err) => setError(getErrorMessage(err, 'Could not load categories')))
   }
   useEffect(load, [])
 
@@ -77,8 +81,7 @@ function AdminProducts() {
       reset()
       load()
     } catch (err) {
-      const data = err.response?.data
-      setError(typeof data === 'string' ? data : 'Could not save product')
+      setError(getErrorMessage(err, 'Could not save product'))
     }
   }
 
@@ -88,7 +91,7 @@ function AdminProducts() {
       await deleteProduct(id)
       load()
     } catch (err) {
-      setError(err.response?.data || 'Could not delete product')
+      setError(getErrorMessage(err, 'Could not delete product'))
     }
   }
 
@@ -100,7 +103,7 @@ function AdminProducts() {
       setNewCategory('')
       load()
     } catch (err) {
-      setError(err.response?.data || 'Could not add category')
+      setError(getErrorMessage(err, 'Could not add category'))
     }
   }
 
@@ -109,33 +112,41 @@ function AdminProducts() {
       await deleteCategory(id)
       load()
     } catch (err) {
-      setError(err.response?.data || 'Could not delete category')
+      setError(getErrorMessage(err, 'Could not delete category'))
     }
   }
   async function handleFillImages(replaceAll) {
     setError('')
+    setSuccess('')
+    setFillingImages(true)
     try {
       const { updated } = await fillProductImages(replaceAll)
-      window.alert(`Updated images for ${updated} product(s)`)
+      setSuccess(updated > 0
+        ? `Found matching photos for ${updated} product(s).`
+        : 'No images were updated. Check that UNSPLASH_ACCESS_KEY is set on the backend (or that no product needs an image).')
       load()
     } catch (err) {
-      setError(err.response?.data || 'Could not fetch images')
+      setError(getErrorMessage(err, 'Could not fetch images'))
+    } finally {
+      setFillingImages(false)
     }
   }
 
   return (
-    <div className="container mt-4">
-      <h2>Manage Products</h2>
+    <div className="ew-page ew-page--wide">
+      <h1 className="ew-page-title">Manage products</h1>
+      <p className="ew-page-lead">Add products, organise categories and keep photos relevant.</p>
       <AdminNav />
-      {error && <p className="text-danger">{String(error)}</p>}
+      {error && <div className="ew-alert ew-alert-error">{String(error)}</div>}
+      {success && <div className="ew-alert ew-alert-success">{success}</div>}
 
-      <div className="mb-4">
-        <h5>Categories</h5>
-        <div className="d-flex flex-wrap gap-2 mb-2">
+      <div className="ew-card ew-card-pad mb-4">
+        <h3 className="ew-card-title">Categories</h3>
+        <div className="d-flex flex-wrap gap-2 mb-3">
           {categories.map((c) => (
-            <span key={c.id} className="badge bg-secondary">
-              {c.name}{' '}
-              <a href="#!" className="text-white ms-1" onClick={() => handleDeleteCategory(c.id)}>×</a>
+            <span key={c.id} className="ew-cat-badge">
+              {c.name}
+              <button type="button" aria-label={`Delete category ${c.name}`} onClick={() => handleDeleteCategory(c.id)}>×</button>
             </span>
           ))}
         </div>
@@ -146,8 +157,9 @@ function AdminProducts() {
         </form>
       </div>
 
-      <h5>{editingId ? `Edit product #${editingId}` : 'Add product'}</h5>
-      <form onSubmit={handleSubmit} className="mb-4" style={{ maxWidth: '520px' }}>
+      <div className="ew-card ew-card-pad mb-4">
+      <h3 className="ew-card-title">{editingId ? `Edit product #${editingId}` : 'Add product'}</h3>
+      <form onSubmit={handleSubmit} style={{ maxWidth: '620px' }}>
         <input className="form-control mb-2" name="name" placeholder="Name" value={form.name} onChange={handleChange} required />
         <textarea className="form-control mb-2" name="description" placeholder="Description" value={form.description} onChange={handleChange} />
         <select className="form-select mb-2" name="categoryId" value={form.categoryId} onChange={handleChange} required>
@@ -177,24 +189,28 @@ function AdminProducts() {
         <button className="btn btn-dark me-2" type="submit">{editingId ? 'Update' : 'Create'}</button>
         {editingId && <button className="btn btn-outline-secondary" type="button" onClick={reset}>Cancel</button>}
       </form>
-     <div className="mb-3 d-flex gap-2">
-       <button className="btn btn-sm btn-outline-dark" onClick={() => handleFillImages(false)}>
-         Auto-fill missing images
-       </button>
-       <button
-         className="btn btn-sm btn-outline-danger"
-         onClick={() => window.confirm('Replace ALL product images?') && handleFillImages(true)}
-       >
-         Replace all images
-       </button>
-     </div>
+      </div>
+      <div className="mb-3 d-flex flex-wrap gap-2 align-items-center">
+        <button className="btn btn-sm btn-outline-dark" disabled={fillingImages} onClick={() => handleFillImages(false)}>
+          {fillingImages ? 'Finding photos…' : 'Auto-fill missing images'}
+        </button>
+        <button
+          className="btn btn-sm btn-outline-danger" disabled={fillingImages}
+          onClick={() => window.confirm('Re-search and replace ALL product images?') && handleFillImages(true)}
+        >
+          Replace all images
+        </button>
+        <span className="text-muted small">Photos are matched to each product's name via Unsplash.</span>
+      </div>
+      <div className="ew-card ew-table-wrap">
       <table className="table">
         <thead>
-          <tr><th>ID</th><th>Name</th><th>Category</th><th>Buy</th><th>Rent/day</th><th>Stock</th><th></th></tr>
+          <tr><th></th><th>ID</th><th>Name</th><th>Category</th><th>Buy</th><th>Rent/day</th><th>Stock</th><th></th></tr>
         </thead>
         <tbody>
           {products.map((p) => (
             <tr key={p.id}>
+              <td style={{ width: 56 }}><div className="ew-thumb" style={{ overflow: 'hidden' }}><ProductImage src={p.imageUrl} alt={p.name} category={p.categoryName} iconSize={16} /></div></td>
               <td>{p.id}</td>
               <td>{p.name}</td>
               <td>{p.categoryName}</td>
@@ -209,6 +225,7 @@ function AdminProducts() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

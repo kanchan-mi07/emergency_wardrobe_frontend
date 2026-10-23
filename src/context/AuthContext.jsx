@@ -9,9 +9,12 @@ export function AuthProvider({ children }) {
 
   // On first load, restore the session from localStorage if one was saved earlier.
   useEffect(() => {
-    const savedUser = localStorage.getItem('user')
-    if (savedUser) {
-      setCurrentUser(JSON.parse(savedUser))
+    try {
+      const savedUser = localStorage.getItem('user')
+      if (savedUser) setCurrentUser(JSON.parse(savedUser))
+    } catch {
+      localStorage.removeItem('user')
+      localStorage.removeItem('token')
     }
     setLoading(false)
   }, [])

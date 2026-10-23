@@ -14,3 +14,17 @@ export async function verifyPayment({ orderId, razorpayOrderId, razorpayPaymentI
   })
   return response.data
 }
+export async function createRentalPayment(rentalId) {
+  const response = await api.post('/api/payments/rental/create', { rentalId })
+  return response.data
+}
+
+export async function verifyRentalPayment({ rentalId, razorpayOrderId, razorpayPaymentId, razorpaySignature }) {
+  const response = await api.post('/api/payments/rental/verify', {
+    rentalId,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  })
+  return response.data
+}

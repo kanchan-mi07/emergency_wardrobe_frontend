@@ -1,35 +1,24 @@
 import { useEffect, useState } from 'react'
 import { fetchAddresses, addAddress, deleteAddress } from '../services/addressService'
+import { getErrorMessage } from '../utils/errors'
 import BackButton from '../components/BackButton'
-
-const emptyForm = { fullName: '', phone: '', addressLine: '', city: '', state: '', pincode: '' }
+import AddressForm from '../components/AddressForm'
 
 function Addresses() {
-  const [addresses, setAddresses] = useState([])
-  const [form, setForm] = useState(emptyForm)
+  const [addresses, setAddresses] = useState(null)
   const [error, setError] = useState('')
 
-  function load() {
-    fetchAddresses().then(setAddresses).catch(() => setError('Could not load addresses'))
-  }
+  const load = () => fetchAddresses().then(setAddresses).catch((err) => setError(getErrorMessage(err, 'Could not load addresses')))
+  useEffect(() => { load() }, [])
 
-  useEffect(() => {
-    load()
-  }, [])
-
-  function handleChange(e) {
-    setForm({ ...form, [e.target.name]: e.target.value })
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault()
+  async function handleAdd(form) {
     setError('')
     try {
       await addAddress(form)
-      setForm(emptyForm)
       load()
     } catch (err) {
-      setError(err.response?.data || 'Could not save address')
+      setError(getErrorMessage(err, 'Could not save address'))
+      throw err
     }
   }
 
@@ -38,37 +27,35 @@ function Addresses() {
       await deleteAddress(id)
       load()
     } catch (err) {
-      setError(err.response?.data || 'Could not delete address')
+      setError(getErrorMessage(err, 'Could not delete address'))
     }
   }
 
   return (
-    <div className="ew-page" style={{ maxWidth: '600px' }}>
+    <div className="ew-page ew-page--narrow">
       <BackButton />
-      <h2>Your Addresses</h2>
+      <h1 className="ew-page-title">Your addresses</h1>
+      <p className="ew-page-lead">Saved delivery addresses for faster checkout.</p>
 
-      {addresses.map((a) => (
-        <div key={a.id} className="border-bottom py-2 d-flex justify-content-between align-items-start">
-          <div>
-            <strong>{a.fullName}</strong> — {a.phone}
-            <div>{a.addressLine}, {a.city}, {a.state} - {a.pincode}</div>
+      {error && <div className="ew-alert ew-alert-error">{error}</div>}
+
+      <div className="ew-list mb-4">
+        {addresses?.length === 0 && <p className="text-muted">No saved addresses yet.</p>}
+        {addresses?.map((a) => (
+          <div key={a.id} className="ew-card ew-row">
+            <div>
+              <div className="ew-row-title">{a.fullName} <span className="text-muted fw-normal">· {a.phone}</span></div>
+              <div className="ew-row-meta">{a.addressLine}, {a.city}, {a.state} - {a.pincode}</div>
+            </div>
+            <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(a.id)}>Delete</button>
           </div>
-          <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(a.id)}>Delete</button>
-        </div>
-      ))}
+        ))}
+      </div>
 
-      <h5 className="mt-4">Add New Address</h5>
-      <form onSubmit={handleSubmit}>
-        <input className="form-control mb-2" name="fullName" placeholder="Full Name" value={form.fullName} onChange={handleChange} required />
-        <input className="form-control mb-2" name="phone" placeholder="Phone" value={form.phone} onChange={handleChange} required />
-        <input className="form-control mb-2" name="addressLine" placeholder="Address Line" value={form.addressLine} onChange={handleChange} required />
-        <input className="form-control mb-2" name="city" placeholder="City" value={form.city} onChange={handleChange} required />
-        <input className="form-control mb-2" name="state" placeholder="State" value={form.state} onChange={handleChange} required />
-        <input className="form-control mb-2" name="pincode" placeholder="Pincode" value={form.pincode} onChange={handleChange} required />
-        <button className="btn btn-dark" type="submit">Save Address</button>
-      </form>
-
-      {error && <p className="text-danger mt-2">{String(error)}</p>}
+      <div className="ew-card ew-card-pad">
+        <h3 className="ew-card-title">Add a new address</h3>
+        <AddressForm onSubmit={handleAdd} />
+      </div>
     </div>
   )
 }

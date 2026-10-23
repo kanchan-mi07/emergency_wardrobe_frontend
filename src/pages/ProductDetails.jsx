@@ -1,15 +1,22 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams, useLocation, Link } from 'react-router-dom'
 import { fetchProductById } from '../services/productService'
 import { addToCart } from '../services/cartService'
 import { checkAvailability, createRental } from '../services/rentalService'
 import { useAuth } from '../context/AuthContext'
+import { startRentalPayment } from '../utils/payment'
+import { getErrorMessage } from '../utils/errors'
 import BackButton from '../components/BackButton'
+import ProductImage from '../components/ProductImage'
+
+const inr = (n) => `₹${Number(n).toLocaleString('en-IN')}`
+const isoDate = (d) => d.toISOString().slice(0, 10)
 
 function ProductDetails() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const location = useLocation()
+  const { isAuthenticated, currentUser } = useAuth()
 
   const [product, setProduct] = useState(null)
   const [selectedVariantId, setSelectedVariantId] = useState(null)
@@ -27,57 +34,61 @@ function ProductDetails() {
   const [rentError, setRentError] = useState('')
 
   useEffect(() => {
+    setProduct(null)
+    setLoadError('')
     fetchProductById(id)
       .then((data) => {
         setProduct(data)
-        if (data.variants?.length) setSelectedVariantId(data.variants[0].id)
+        // Preselect the first size that is actually in stock.
+        const first = data.variants?.find((v) => v.available) ?? data.variants?.[0]
+        setSelectedVariantId(first ? first.id : null)
       })
-      .catch(() => setLoadError('Product not found.'))
+      .catch(() => setLoadError('We could not find that product.'))
   }, [id])
 
   useEffect(() => {
     setAvailability(null)
   }, [startDate, endDate, selectedVariantId])
 
+  const today = useMemo(() => isoDate(new Date()), [])
+  const minEnd = useMemo(() => {
+    if (!startDate) return today
+    const d = new Date(startDate)
+    d.setDate(d.getDate() + 1)
+    return isoDate(d)
+  }, [startDate, today])
+
+  function requireLogin() {
+    navigate('/login', { state: { from: location.pathname } })
+  }
+
   async function handleAddToCart() {
-    if (!isAuthenticated) {
-      navigate('/login')
-      return
-    }
+    if (!isAuthenticated) return requireLogin()
     setAdding(true)
     setBuyError('')
     setBuyMessage('')
     try {
       await addToCart({ productId: product.id, variantId: selectedVariantId, quantity: 1 })
-      setBuyMessage('Added to cart!')
+      setBuyMessage('Added to your cart.')
     } catch (err) {
-      setBuyError(err.response?.data || 'Could not add to cart')
+      setBuyError(getErrorMessage(err, 'Could not add to cart'))
     } finally {
       setAdding(false)
     }
   }
 
   async function handleCheckAvailability() {
-    if (!isAuthenticated) {
-      navigate('/login')
-      return
-    }
+    if (!isAuthenticated) return requireLogin()
     if (!startDate || !endDate) {
-      setRentError('Please choose both a start and end date')
+      setRentError('Please choose both a start and a return date')
       return
     }
     setCheckingAvailability(true)
     setRentError('')
     try {
-      const result = await checkAvailability({
-        productId: product.id,
-        variantId: selectedVariantId,
-        startDate,
-        endDate,
-      })
-      setAvailability(result)
+      setAvailability(await checkAvailability({ productId: product.id, variantId: selectedVariantId, startDate, endDate }))
     } catch (err) {
-      setRentError(err.response?.data || 'Could not check availability')
+      setRentError(getErrorMessage(err, 'Could not check availability'))
     } finally {
       setCheckingAvailability(false)
     }
@@ -86,139 +97,164 @@ function ProductDetails() {
   async function handleConfirmRental() {
     setBooking(true)
     setRentError('')
+    let rental
     try {
-      const rental = await createRental({
-        productId: product.id,
-        variantId: selectedVariantId,
-        startDate,
-        endDate,
-      })
-      navigate(`/rentals/${rental.id}`)
+      // 1) reserve the dates (the server re-checks availability and computes the price)
+      rental = await createRental({ productId: product.id, variantId: selectedVariantId, startDate, endDate })
     } catch (err) {
-      setRentError(err.response?.data || 'Could not book this rental')
+      setRentError(getErrorMessage(err, 'Could not book this rental'))
       setAvailability(null)
-    } finally {
       setBooking(false)
+      return
+    }
+    // 2) take payment. If it isn't completed, the rental page has a "Pay now" button.
+    const go = (notice) => navigate(`/rentals/${rental.id}`, { state: notice ? { notice } : undefined })
+    try {
+      await startRentalPayment(rental, currentUser, {
+        onPaid: () => go(),
+        onDismiss: () => go('Your dates are reserved, but payment was not completed. Pay now to confirm your rental.'),
+        onVerifyError: () => go('We could not verify your payment yet. If money was deducted, contact support with this rental number.'),
+      })
+    } catch (err) {
+      go(getErrorMessage(err, 'Could not start payment. You can pay from here.'))
     }
   }
 
-  function previewRentalDays() {
-    if (!startDate || !endDate) return null
-    const days = (new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)
-    return days > 0 ? days : null
+  if (loadError) {
+    return (
+      <div className="ew-page-state">
+        <h2>{loadError}</h2>
+        <Link to="/products" className="ew-btn-primary mt-3">Back to shop</Link>
+      </div>
+    )
+  }
+  if (!product) {
+    return (
+      <div className="ew-page">
+        <div className="ew-detail">
+          <div className="ew-skel" style={{ aspectRatio: '4/5', borderRadius: 14 }} />
+          <div>
+            <div className="ew-skel" style={{ height: 14, width: '30%', marginBottom: 18 }} />
+            <div className="ew-skel" style={{ height: 36, width: '70%', marginBottom: 18 }} />
+            <div className="ew-skel" style={{ height: 14, marginBottom: 10 }} />
+            <div className="ew-skel" style={{ height: 14, width: '80%' }} />
+          </div>
+        </div>
+      </div>
+    )
   }
 
-  if (loadError) return <p className="container mt-4 text-danger">{loadError}</p>
-  if (!product) return <p className="container mt-4">Loading...</p>
-
-  const previewDays = previewRentalDays()
+  const selectedVariant = product.variants?.find((v) => v.id === selectedVariantId)
+  const stock = selectedVariant ? selectedVariant.stock : product.stock
+  const outOfStock = stock <= 0
+  const days = startDate && endDate ? Math.round((new Date(endDate) - new Date(startDate)) / 86400000) : 0
+  const previewDays = days > 0 ? days : null
 
   return (
-     <div className="ew-page" style={{ maxWidth: '600px' }}>
-     <BackButton />
-          {product.imageUrl && (
-            <div
-              className="ew-product-detail-image"
-              style={{ backgroundImage: `url(${product.imageUrl})` }}
-            />
-          )}
-          <h2>{product.name}</h2>
-      <p className="text-muted">{product.categoryName}</p>
-      <p>{product.description}</p>
-
-      {product.purchasable && <p><strong>Price:</strong> ₹{product.price}</p>}
-      {product.rentable && (
-        <>
-          <p><strong>Rental price:</strong> ₹{product.rentalPricePerDay}/day</p>
-          <p><strong>Security deposit:</strong> ₹{product.securityDeposit}</p>
-        </>
-      )}
-      <p><strong>Stock:</strong> {product.stock}</p>
-
-      {product.variants?.length > 0 && (
-        <div className="mb-3">
-          <label className="form-label"><strong>Size</strong></label>
-          <select
-            className="form-select"
-            value={selectedVariantId ?? ''}
-            onChange={(e) => setSelectedVariantId(Number(e.target.value))}
-          >
-            {product.variants.map((v) => (
-              <option key={v.id} value={v.id} disabled={!v.available}>
-                {v.size} {v.available ? `(${v.stock} left)` : '(out of stock)'}
-              </option>
-            ))}
-          </select>
+    <div className="ew-page">
+      <BackButton />
+      <div className="ew-detail">
+        <div className="ew-detail-media">
+          <ProductImage src={product.imageUrl} alt={product.name} category={product.categoryName} iconSize={72} />
         </div>
-      )}
 
-      {product.purchasable && (
-        <div className="mb-4">
-          <button className="btn btn-dark" onClick={handleAddToCart} disabled={adding}>
-            {adding ? 'Adding...' : 'Add to Cart'}
-          </button>
-          {buyMessage && (
-            <p className="text-success mt-2">
-              {buyMessage} <Link to="/cart">View cart</Link>
-            </p>
-          )}
-          {buyError && <p className="text-danger mt-2">{String(buyError)}</p>}
-        </div>
-      )}
+        <div>
+          <span className="ew-eyebrow">{product.categoryName}</span>
+          <h1>{product.name}</h1>
+          <p className="ew-detail-desc">{product.description}</p>
 
-      {product.rentable && (
-        <div className="border rounded p-3">
-          <h5>Rent This</h5>
-          <div className="row g-2 mb-2">
-            <div className="col">
-              <label className="form-label">Start date</label>
-              <input
-                type="date"
-                className="form-control"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-            </div>
-            <div className="col">
-              <label className="form-label">Return date</label>
-              <input
-                type="date"
-                className="form-control"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
+          <div className="ew-price-box">
+            {product.purchasable && (
+              <div className="ew-price-tile"><small>Buy</small><strong>{inr(product.price)}</strong></div>
+            )}
+            {product.rentable && (
+              <div className="ew-price-tile">
+                <small>Rent</small>
+                <strong>{inr(product.rentalPricePerDay)}</strong> <em>/ day</em>
+                {product.securityDeposit > 0 && <div><em>+ {inr(product.securityDeposit)} refundable deposit</em></div>}
+              </div>
+            )}
           </div>
 
-          {previewDays && (
-            <p className="text-muted mb-2">
-              {previewDays} day{previewDays > 1 ? 's' : ''} — estimated rental ₹{(previewDays * product.rentalPricePerDay).toFixed(2)} + ₹{product.securityDeposit} deposit
-              <br /><small>(final amount is always confirmed by the server when you book)</small>
-            </p>
-          )}
-
-          {!availability && (
-            <button className="btn btn-outline-dark" onClick={handleCheckAvailability} disabled={checkingAvailability}>
-              {checkingAvailability ? 'Checking...' : 'Check Availability'}
-            </button>
-          )}
-
-          {availability && availability.available && (
+          {product.variants?.length > 0 && (
             <>
-              <p className="text-success">✓ Available for these dates</p>
-              <button className="btn btn-dark" onClick={handleConfirmRental} disabled={booking}>
-                {booking ? 'Booking...' : 'Confirm Rental'}
-              </button>
+              <label className="form-label">Size</label>
+              <div className="ew-sizes" role="radiogroup" aria-label="Size">
+                {product.variants.map((v) => (
+                  <button
+                    key={v.id} type="button" role="radio" aria-checked={v.id === selectedVariantId}
+                    className={`ew-size${v.id === selectedVariantId ? ' active' : ''}`}
+                    disabled={!v.available} onClick={() => setSelectedVariantId(v.id)}
+                  >
+                    {v.size}
+                  </button>
+                ))}
+              </div>
             </>
           )}
 
-          {availability && !availability.available && (
-            <p className="text-danger">{availability.reason || 'Not available for these dates'}</p>
+          {product.purchasable && (
+            <div>
+              <div className={`ew-stock${outOfStock ? ' out' : stock <= 5 ? ' low' : ''}`}>
+                <i /> {outOfStock ? 'Out of stock' : stock <= 5 ? `Only ${stock} left` : 'In stock'}
+              </div>
+              <div>
+                <button className="ew-btn-primary" onClick={handleAddToCart} disabled={adding || outOfStock}>
+                  {adding ? 'Adding…' : 'Add to cart'}
+                </button>
+              </div>
+              {buyMessage && (
+                <div className="ew-alert ew-alert-success">{buyMessage} <Link to="/cart">View cart →</Link></div>
+              )}
+              {buyError && <div className="ew-alert ew-alert-error">{buyError}</div>}
+            </div>
           )}
 
-          {rentError && <p className="text-danger mt-2">{String(rentError)}</p>}
+          {product.rentable && (
+            <div className="ew-rent-box">
+              <h5>Rent this</h5>
+              <div className="row g-2 mb-3">
+                <div className="col">
+                  <label className="form-label" htmlFor="start">Start date</label>
+                  <input id="start" type="date" className="form-control" min={today} value={startDate}
+                    onChange={(e) => { setStartDate(e.target.value); if (endDate && e.target.value >= endDate) setEndDate('') }} />
+                </div>
+                <div className="col">
+                  <label className="form-label" htmlFor="end">Return date</label>
+                  <input id="end" type="date" className="form-control" min={minEnd} value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+              </div>
+
+              {previewDays && (
+                <p className="text-muted small mb-3">
+                  {previewDays} day{previewDays > 1 ? 's' : ''} — estimated rental {inr(previewDays * product.rentalPricePerDay)}
+                  {product.securityDeposit > 0 && <> + {inr(product.securityDeposit)} deposit</>}.
+                  You'll pay this securely with Razorpay; the final amount is calculated by the server.
+                </p>
+              )}
+
+              {!availability && (
+                <button className="btn btn-outline-dark" onClick={handleCheckAvailability} disabled={checkingAvailability}>
+                  {checkingAvailability ? 'Checking…' : 'Check availability'}
+                </button>
+              )}
+              {availability?.available && (
+                <>
+                  <div className="ew-alert ew-alert-success">✓ Available for these dates</div>
+                  <button className="ew-btn-primary" onClick={handleConfirmRental} disabled={booking}>
+                    {booking ? 'Opening payment…' : `Confirm & pay ${inr(days * product.rentalPricePerDay + Number(product.securityDeposit || 0))}`}
+                  </button>
+                </>
+              )}
+              {availability && !availability.available && (
+                <div className="ew-alert ew-alert-error">{availability.reason || 'Not available for these dates'}</div>
+              )}
+              {rentError && <div className="ew-alert ew-alert-error">{rentError}</div>}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
